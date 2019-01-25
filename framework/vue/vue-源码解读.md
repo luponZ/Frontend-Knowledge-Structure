@@ -1,5 +1,5 @@
-> 文章参考了[Vue.js 技术揭秘](https://ustbhuangyi.github.io/vue-analysis/prepare/entrance.html "Markdown")
-> *只做个人参考使用*
+> 文章参考了[Vue.js 技术揭秘](https://ustbhuangyi.github.io/vue-analysis/prepare/entrance.html "Markdown") | [Vue技术内幕](http://hcysun.me/vue-design/)
+> *只做个人理解使用*
 >
 ----
 ##说明
@@ -407,16 +407,75 @@ __initGlobalAPI__ 都干了啥?
             vm,
         }
     ```
-2. 设置Vue实例_renderProxy的内部属性
+2. 设置Vue实例_renderProxy的内部属性,这个属性是用于执行render函数时绑定内部this的用处,注意[initProxy](#vue--private__util__initProxy)只有在非生产模式下才会挂载proxy代理
 3. 这些外部导入的方法才算是组件初始化功能
-    1. initLifecycle(初始化生命周期)
+    1. [initLifecycle](#vue--private__util__initLifecycle)(初始化生命周期)
     2. initEvents(初始化事件中心)
-    3. initRender(初始化渲染)
+    3. [initRender](#vue--private__util__initRender)(初始化渲染) 这段代码比较复杂,我们现在所能知道的就是改方法添加了几个实例属性
     4. 生命周期声明(beforeCreate)
     5. initInjections(初始化注入器)
-    6. initState(初始化data、props、computed、watcher)
+    6. [initState](#vue--private__util__initState)(初始化data、props、computed、watcher)
     7. initProvide(初始化provide)
     8. 生命周期声明(created)
+
+*************************************************
+*************************************************
+
+### 响应式系统
+#### 1. data属性响应系统
+initData
+```js
+function initData (vm: Component) {
+  let data = vm.$options.data
+  // P1
+  data = vm._data = typeof data === 'function'
+    ? getData(data, vm)
+    : data || {}
+  if (!isPlainObject(data)) {
+    data = {}
+    process.env.NODE_ENV !== 'production' && warn(
+      'data functions should return an object:\n' +
+      'https://vuejs.org/v2/guide/components.html#data-Must-Be-a-Function',
+      vm
+    )
+  }
+  // proxy data on instance
+  const keys = Object.keys(data)
+  const props = vm.$options.props
+  const methods = vm.$options.methods
+  let i = keys.length
+  // P2
+  while (i--) {
+    const key = keys[i]
+    if (process.env.NODE_ENV !== 'production') {
+      if (methods && hasOwn(methods, key)) {
+        warn(
+          `Method "${key}" has already been defined as a data property.`,
+          vm
+        )
+      }
+    }
+    if (props && hasOwn(props, key)) {
+      process.env.NODE_ENV !== 'production' && warn(
+        `The data property "${key}" is already declared as a prop. ` +
+        `Use prop default value instead.`,
+        vm
+      )
+    } else if (!isReserved(key)) {
+        // P3
+      proxy(vm, `_data`, key)
+    }
+  }
+  // observe data
+  observe(data, true /* asRootData */)
+}
+```
+1. 判断data是否是函数(mergeOptions的时候会返回一个函数),如果是函数就通过getData来获取数据对象
+2. 判断data与props和methods的属性是否相同,避免同名覆盖;或者是特定属性值(第一个字符是不是 $ 或 _)
+3. 通过Object.defineProperty设置代理,当我们访问vue.data上的属性时,其实是访问vue._data上的属性
+
+*************************************************
+*************************************************
 
 ##函数方法详解
 
@@ -454,10 +513,11 @@ __initGlobalAPI__ 都干了啥?
     }
 ```
 1. 首先从对函数名的解读可以知道该函数可能用于解析构造器的options的, 而从他最后的返回值来看我们也能知道该函数返回的也是一个options, 所以if的过程应该就是对options的某些处理操作
-2. if的条件判断是Ctor.super,Ctor是一个构造函数, super指的就是父类,而我们知道传入的Ctor其实是就是Vue实例的构造函数,所以如果传进的是new Vue()构造的实例, 就不会走这一步, 而直接会把Vue.options返回, 而如果是通过Vue.extend()创造子类的实例对象就会走这一步
+2. if的条件判断是Ctor.super,Ctor是一个构造函数, super指的就是父类,而我们知道传入的Ctor其实是就是Vue实例的构造函数,所以<b>如果传进的是new Vue()构造的实例, 就不会走这一步</b>, 而直接会把Vue.options返回, 而如果是通过Vue.extend()创造子类的实例对象就会走这一步
     1. 这里会递归调用resolveConstructorOptions,而传入的参数变成了构造器的父类, 同时比较构造器的superOptions和构造器的父类的option是否相等, 不相等的话就更新改构造器的superOptions
     2. 这里是修复了git上提的一个bug
     3. 调用了mergeOptions来合并superOptions和extendOptions(<span style="color: red">这个属性在Vue.extend中被定义</span>)并将其返回
+********************************************************
 
 ### <span id="vue--private__util__mergeOptions">mergeOptions方法</span>
 ```js
@@ -475,14 +535,18 @@ __initGlobalAPI__ 都干了啥?
         if (process.env.NODE_ENV !== 'production') {
             checkComponents(child)
         }
-
+        
+        // P3
         if (typeof child === 'function') {
             child = child.options
         }
 
+        // P4
         normalizeProps(child, vm)
         normalizeInject(child, vm)
         normalizeDirectives(child)
+
+        // P5
         const extendsFrom = child.extends
         if (extendsFrom) {
             parent = mergeOptions(parent, extendsFrom, vm)
@@ -492,6 +556,8 @@ __initGlobalAPI__ 都干了啥?
             parent = mergeOptions(parent, child.mixins[i], vm)
             }
         }
+
+        // P6
         const options = {}
         let key
         for (key in parent) {
@@ -503,6 +569,7 @@ __initGlobalAPI__ 都干了啥?
             }
         }
         function mergeField (key) {
+            // P6-1
             const strat = strats[key] || defaultStrat
             options[key] = strat(parent[key], child[key], vm, key)
         }
@@ -510,6 +577,454 @@ __initGlobalAPI__ 都干了啥?
     }
 ```
 1. 从注释可以知道该函数是合并两个option对象,同时返回一个新的对象,在实例化和继承中都是使用这个方法来合并的
-2. 
+2. 在非生产环境下会检查child的component的名称是否符合要求:
+    2.1 字由普通的字符和中横线(-)组成，且必须以字母开头
+    2.2 不是内置标签
+    ```js
+        export const isBuiltInTag = makeMap('slot,component', true)
+    ```
+    2.3 不是保留标签
+    ```js
+        export const isReservedTag = makeMap(
+            'template,script,style,element,content,slot,link,meta,svg,view,' +
+            'a,div,img,image,text,span,input,switch,textarea,spinner,select,' +
+            'slider,slider-neighbor,indicator,canvas,' +
+            'list,cell,header,loading,loading-indicator,refresh,scrollable,scroller,' +
+            'video,web,embed,tabbar,tabheader,datepicker,timepicker,marquee,countdown',
+            true
+        )
+    ```
+3. 如果子对象是函数就取其静态属性options
+4. 对props,inject,directive进行规范化,因为在写vue的option时有很多简写方法,因此要将其统一
+5. 合并extends和mixins,这里会递归调用该函数, 从代码的执行顺序来看,mixins的属性会覆盖extends的相同属性
+6. 这里多次出现了mergeField这个函数,这个函数的作用是什么?
+    1. 首先得到了一个strats对象或者默认strats对象,而这个[strats](#vue--private__util__mergeOptions__strats)对象最初就是一个完全空对象,后面会发现在不断添加对应属性的合并策略,而注释中也说明该对象的作用是合并策略使用;defaultStrat是一个如果子选项不是 undefined 那么就是用子选项，否则使用父选项的策略函数.
 
 ### <span id="vue--private__util__initInternalComponent">initInternalComponent</span>
+********************************************************
+
+###<span id="vue--private__util__mergeOptions__strats">strats合并策略函数详解</span>
+#### 1. el,propsData
+``` js
+    strats.el = strats.propsData = function (parent, child, vm, key) {
+        if (!vm) {
+            warn(
+                `option "${key}" can only be used during instance ` +
+                'creation with the `new` keyword.'
+            )
+        }
+        return defaultStrat(parent, child)
+    }
+```
+> 由于合并策略在Vue实例化和继承(Vue.extend)时都会被调用,都返回 __默认策略值__, 但如果 __没有vm参数(即实例化时)__ 就会给出警告
+#### 2. data
+```js
+    strats.data = function (
+        parentVal: any,
+        childVal: any,
+        vm?: Component
+    ): ?Function {
+        if (!vm) {
+            // P1
+            if (childVal && typeof childVal !== 'function') {
+            process.env.NODE_ENV !== 'production' && warn(
+                'The "data" option should be a function ' +
+                'that returns a per-instance value in component ' +
+                'definitions.',
+                vm
+            )
+
+            return parentVal
+            }
+            // P2
+            return mergeDataOrFn.call(this, parentVal, childVal)
+        }
+
+        return mergeDataOrFn(parentVal, childVal, vm)
+    }
+```
+1. 这里告诉我们data的返回格式应该是一个函数
+2. 最后返回的都会mergeDataOrFn函数
+让我们看看mergeDataOrFn这个函数:
+```js
+export function mergeDataOrFn (
+  parentVal: any,
+  childVal: any,
+  vm?: Component
+): ?Function {
+    // P1
+  if (!vm) {
+    //  P1-1  
+    // in a Vue.extend merge, both should be functions
+    if (!childVal) {
+      return parentVal
+    }
+    if (!parentVal) {
+      return childVal
+    }
+    // P1-2
+    // when parentVal & childVal are both present,
+    // we need to return a function that returns the
+    // merged result of both functions... no need to
+    // check if parentVal is a function here because
+    // it has to be a function to pass previous merges.
+    return function mergedDataFn () {
+      return mergeData(
+        typeof childVal === 'function' ? childVal.call(this) : childVal,
+        typeof parentVal === 'function' ? parentVal.call(this) : parentVal
+      )
+    }
+  // P2  
+  } else if (parentVal || childVal) {
+    return function mergedInstanceDataFn () {
+      // instance merge
+      const instanceData = typeof childVal === 'function'
+        ? childVal.call(vm)
+        : childVal
+      const defaultData = typeof parentVal === 'function'
+        ? parentVal.call(vm)
+        : parentVal
+      if (instanceData) {
+        return mergeData(instanceData, defaultData)
+      } else {
+        return defaultData
+      }
+    }
+  }
+}
+```
+这里有个重要的逻辑判断-合并对象是否是子组件
+1. 如果是
+    1. 如果没有子选项则使用父选项，没有父选项就直接使用子选项,这里主要针对的是Vue.extend的情况 
+    2. 如果父子选项都有就返回一个函数 mergedDataFn
+2. 如果不是(new Vue()) 就返回一个函数 mergedInstanceDataFn
+3. 整个函数的最后都返回了一个函数,而这个函数又返回了一个mergeData(to,from)函数,这个函数的作用简单说就是: __将 from 对象的属性混合到 to 对象中，也可以说是将 parentVal 对象的属性混合到 childVal 中，最后返回的是处理后的 childVal 对象__,而这样返回一个函数而不是合并好的对象是有原因的:
+    1. 保证每个实例都有唯一的副本
+    2. 保证props和inject属性先行初始化,这样就能在data属性中使用
+    3. 有个有意思的地方是childVal.call(this),parentVal.call(this),在早先的版本中是childVal.call(this, this), parentVal.call(this, this).
+
+#### 3. LIFECYCLE_HOOKS(生命周期钩子)
+```js
+/**
+ * Hooks and props are merged as arrays.
+ */
+function mergeHook (
+  parentVal: ?Array<Function>,
+  childVal: ?Function | ?Array<Function>
+): ?Array<Function> {
+  // P1  
+  return childVal
+    ? parentVal
+      ? parentVal.concat(childVal)
+      // P2
+      : Array.isArray(childVal)
+        ? childVal
+        : [childVal]
+    : parentVal
+}
+
+LIFECYCLE_HOOKS.forEach(hook => {
+  strats[hook] = mergeHook
+})
+```
+1. 合并函数的逻辑还是比较简单的
+```js
+return (是否有 childVal，即判断组件的选项中是否有对应名字的生命周期钩子函数)
+  ? 如果有 childVal 则判断是否有 parentVal
+    ? 如果有 parentVal 则使用 concat 方法将二者合并为一个数组
+    : 如果没有 parentVal 则判断 childVal 是不是一个数组
+      ? 如果 childVal 是一个数组则直接返回
+      : 否则将其作为数组的元素，然后返回数组
+  : 如果没有 childVal 则直接返回 parentVal
+```
+2. 这里会判断传入的childVal是否是数组,一般我们设置的都是函数即:
+```js
+created() {
+    console.log("created")
+}
+```
+由此我们也可以知道我们还能写成数组:
+```js
+created: [
+    function () {
+      console.log('first')
+    },
+    function () {
+      console.log('second')
+    },
+    function () {
+      console.log('third')
+    }
+  ]
+```
+
+#### 4. ASSET_TYPES(资源:directives、filters 以及 components)
+```js
+/**
+ * Assets
+ *
+ * When a vm is present (instance creation), we need to do
+ * a three-way merge between constructor options, instance
+ * options and parent options.
+ */
+function mergeAssets (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): Object {
+  // P1  
+  const res = Object.create(parentVal || null)
+  if (childVal)
+    // P2
+    process.env.NODE_ENV !== 'production' && assertObjectType(key, childVal, vm)
+    return extend(res, childVal)
+  } else {
+    return res
+  }
+}
+
+ASSET_TYPES.forEach(function (type) {
+  strats[type + 's'] = mergeAssets
+})
+```
+1. 以parentVal为原型创建对象res
+2. 如果存在childVal, 就用 extend 函数将 childVal 上的属性混合到 res 对象上并返回,注意在非生产环境会检测 childVal 是不是一个纯对象
+3. 如果不存在就返回res
+
+#### 5. watch
+```js
+/**
+ * Watchers.
+ *
+ * Watchers hashes should not overwrite one
+ * another, so we merge them as arrays.
+ */
+strats.watch = function (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): ?Object {
+  // P1  
+  // work around Firefox's Object.prototype.watch...
+  if (parentVal === nativeWatch) parentVal = undefined
+  if (childVal === nativeWatch) childVal = undefined
+
+  // P2
+  /* istanbul ignore if */
+  if (!childVal) return Object.create(parentVal || null)
+  if (process.env.NODE_ENV !== 'production') {
+    assertObjectType(key, childVal, vm)
+  }
+  if (!parentVal) return childVal
+
+  // P3
+  // P3-1
+  const ret = {}
+  extend(ret, parentVal)
+  // P3-2
+  for (const key in childVal) {
+    let parent = ret[key]
+    const child = childVal[key]
+    if (parent && !Array.isArray(parent)) {
+      parent = [parent]
+    }
+    ret[key] = parent
+      ? parent.concat(child)
+      : Array.isArray(child) ? child : [child]
+  }
+  return ret
+}
+``` 
+1. 这里会对firfox浏览器进行特殊处理,因为Firefox 浏览器中 Object.prototype 拥有原生的 watch 函数,这样即使用户没有传入watch选项,我们依然能获取到watch,这样在用户没有传入watch对象的时候,就重置为 undefined
+2. 如果不存在childVal则返回parentVal;如果不存在parentVal,则返回childVal;
+3. 如果childVal和parentVal都存在
+    1. 声明一个对象ret, 并将parentVal的属性拷贝到该对象
+    2. 将遍历childVal对象,如果ret已存在该对象,就先将原来ret上的属性设置成数组,并将childVal上的属性存入改数组;如果不存在该对象,就将childVal上的属性转成数组,并保存在ret对象上
+
+#### 6. props、methods、inject、computed
+```js
+/**
+ * Other object hashes.
+ */
+strats.props =
+strats.methods =
+strats.inject =
+strats.computed = function (
+  parentVal: ?Object,
+  childVal: ?Object,
+  vm?: Component,
+  key: string
+): ?Object {
+  if (childVal && process.env.NODE_ENV !== 'production') {
+    assertObjectType(key, childVal, vm)
+  }
+  // P1
+  if (!parentVal) return childVal
+  // P2
+  const ret = Object.create(null)
+  extend(ret, parentVal)
+  if (childVal) extend(ret, childVal)
+  return ret
+}
+```
+这个合并策略比较简单:
+1. 如果不存在parentVal, 就返回childVal
+2. 如果存在parentVal, 就声明一个空对象, 继承parentVal和childVal(如果存在,并且会覆盖父级),然后返回该对象
+
+#### 7. provide
+```js
+strats.provide = mergeDataOrFn
+```
+可以知道provide的策略和data是一样的
+
+#### 8. 其他属性(默认策略)
+默认合并策略函数 defaultStrat 的策略是：只要子选项不是 undefined 就使用子选项，否则使用父选项。
+********************************************************
+
+### <span id="vue--private__util__initProxy">initProxy
+```js
+let initProxy
+
+if (process.env.NODE_ENV !== 'production') {...}
+
+export {initProxy}
+```
+我们可以看到initProxy只有在非生产模式下才会赋值
+然后看下initProxy函数
+```js
+initProxy = function initProxy (vm) {
+    // P1
+    if (hasProxy) {
+        // determine which proxy handler to use
+        const options = vm.$options
+        // P2
+        const handlers = options.render && options.render._withStripped
+            ? getHandler
+            : hasHandler
+        vm._renderProxy = new Proxy(vm, handlers)
+    } else {
+        vm._renderProxy = vm
+    }
+}
+```
+1. 这里会有个逻辑判断,会对浏览器是否支持proxy代理,如果支持就设置代理
+2. 这边代理的回调会对条件进行判断,不过options.render._withStripped只在测试中出现,所以这里的handle一般都是hasHandler
+我们看看hasHandler这个函数
+```js
+const hasHandler = {
+    has (target, key) {
+      const has = key in target
+      const isAllowed = allowedGlobals(key) || key.charAt(0) === '_'
+      if (!has && !isAllowed) {
+        warnNonPresent(target, key)
+      }
+      return has || !isAllowed
+    }
+  }
+```
+我能可以看到拦截的属性必须符合以下条件,才会被正确拦截
+1. 属性值存在
+2. 被运行的全局属性或者属性是以_开头
+
+否则将会抛出错误warnNonPresent, 我们可以看下这个抛出的错误
+```js
+warn(
+      `Property or method "${key}" is not defined on the instance but ` +
+      'referenced during render. Make sure that this property is reactive, ' +
+      'either in the data option, or for class-based components, by ' +
+      'initializing the property. ' +
+      'See: https://vuejs.org/v2/guide/reactivity.html#Declaring-Reactive-Properties.',
+      target
+    )
+```
+警告信息提示你“在渲染的时候引用了 key，但是在实例对象上并没有定义 key 这个属性或方法”,我们也清除initProxy的作用是绑定渲染的作用域,提供一些提示信息
+
+### <span id="vue--private__util__initLifecycle">initLifecycle</span>
+```js
+export function initLifecycle (vm: Component) {
+  const options = vm.$options
+
+  // P1  
+  // locate first non-abstract parent
+  let parent = options.parent
+  if (parent && !options.abstract) {
+    while (parent.$options.abstract && parent.$parent) {
+      parent = parent.$parent
+    }
+    parent.$children.push(vm)
+  }
+
+  vm.$parent = parent
+  vm.$root = parent ? parent.$root : vm
+
+  vm.$children = []
+  vm.$refs = {}
+
+  vm._watcher = null
+  vm._inactive = null
+  vm._directInactive = false
+  vm._isMounted = false
+  vm._isDestroyed = false
+  vm._isBeingDestroyed = false
+}
+```
+1. 经过while 循环后，parent 应该是一个非抽象的组件，将它作为当前实例的父级，所以将当前实例 vm 添加到父级的 $children 属性里,这里有个属性abstract可以注意一下,这个属性我们很少使用,那这个属性是干什么的,实际上设置abstract: true的属性的组件表示其为抽象组件,这种抽象组件不会产生实际的dom结构,例如keep-alive
+
+### <span id="#vue--private__util__initRender">initRender</span>
+```js
+export function initRender (vm: Component) {
+  vm._vnode = null // the root of the child tree
+  const options = vm.$options
+  const parentVnode = vm.$vnode = options._parentVnode // the placeholder node in parent tree
+  const renderContext = parentVnode && parentVnode.context
+  vm.$slots = resolveSlots(options._renderChildren, renderContext)
+  vm.$scopedSlots = emptyObject
+  // bind the createElement fn to this instance
+  // so that we get proper render context inside it.
+  // args order: tag, data, children, normalizationType, alwaysNormalize
+  // internal version is used by render functions compiled from templates
+  vm._c = (a, b, c, d) => createElement(vm, a, b, c, d, false)
+  // normalization is always applied for the public version, used in
+  // user-written render functions.
+  vm.$createElement = (a, b, c, d) => createElement(vm, a, b, c, d, true)
+
+  // $attrs & $listeners are exposed for easier HOC creation.
+  // they need to be reactive so that HOCs using them are always updated
+  const parentData = parentVnode && parentVnode.data
+
+  /* istanbul ignore else */
+  if (process.env.NODE_ENV !== 'production') {
+    defineReactive(vm, '$attrs', parentData && parentData.attrs || emptyObject, () => {
+      !isUpdatingChildComponent && warn(`$attrs is readonly.`, vm)
+    }, true)
+    defineReactive(vm, '$listeners', options._parentListeners || emptyObject, () => {
+      !isUpdatingChildComponent && warn(`$listeners is readonly.`, vm)
+    }, true)
+  } else {
+    defineReactive(vm, '$attrs', parentData && parentData.attrs || emptyObject, null, true)
+    defineReactive(vm, '$listeners', options._parentListeners || emptyObject, null, true)
+  }
+}
+```
+
+### <span id="#vue--private__util__initState">initState</span>
+```js
+export function initState (vm: Component) {
+  vm._watchers = []
+  const opts = vm.$options
+  if (opts.props) initProps(vm, opts.props)
+  if (opts.methods) initMethods(vm, opts.methods)
+  if (opts.data) {
+    initData(vm)
+  } else {
+    observe(vm._data = {}, true /* asRootData */)
+  }
+  if (opts.computed) initComputed(vm, opts.computed)
+  if (opts.watch && opts.watch !== nativeWatch) {
+    initWatch(vm, opts.watch)
+  }
+}
+```
+分别初始化了props methods data computed watch, 搭建了响应式系统
