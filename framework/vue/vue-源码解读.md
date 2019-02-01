@@ -466,6 +466,7 @@ function initData (vm: Component) {
       proxy(vm, `_data`, key)
     }
   }
+  // P4
   // observe data
   observe(data, true /* asRootData */)
 }
@@ -473,6 +474,36 @@ function initData (vm: Component) {
 1. 判断data是否是函数(mergeOptions的时候会返回一个函数),如果是函数就通过getData来获取数据对象
 2. 判断data与props和methods的属性是否相同,避免同名覆盖;或者是特定属性值(第一个字符是不是 $ 或 _)
 3. 通过Object.defineProperty设置代理,当我们访问vue.data上的属性时,其实是访问vue._data上的属性
+4. 这里开始设置data的响应数据系统,我们来看看 __observe__ 这个函数
+```js
+export function observe (value: any, asRootData: ?boolean): Observer | void {
+    // P1
+  if (!isObject(value) || value instanceof VNode) {
+    return
+  }
+  let ob: Observer | void
+  // P2
+  if (hasOwn(value, '__ob__') && value.__ob__ instanceof Observer) {
+    ob = value.__ob__
+  } else if (
+      // P3
+    observerState.shouldConvert &&
+    !isServerRendering() &&
+    (Array.isArray(value) || isPlainObject(value)) &&
+    Object.isExtensible(value) &&
+    !value._isVue
+  ) {
+    ob = new Observer(value)
+  }
+  if (asRootData && ob) {
+    ob.vmCount++
+  }
+  return ob
+}
+```
+1. 这里判定是不是对象或者是VNode的实例,如果判断为真就返回
+2. 判断对象上是否存在__ob__属性(该属性是Observer的实例),如果有就返回该属性
+3. 判断五个属性,为真就返回新的 [Observer](#vue--private__util__Observer) 实例
 
 *************************************************
 *************************************************
@@ -1028,3 +1059,144 @@ export function initState (vm: Component) {
 }
 ```
 分别初始化了props methods data computed watch, 搭建了响应式系统
+
+**************************************************
+### <span id="#vue--private__util__Observer">Observer</span>
+```js
+// P1
+export class Observer {
+  value: any;
+  dep: Dep;
+  vmCount: number; // number of vms that has this object as root $data
+
+  constructor (value: any) {
+    this.value = value
+    this.dep = new Dep()
+    this.vmCount = 0
+    // P2
+    def(value, '__ob__', this)
+    // P3
+    if (Array.isArray(value)) {
+      if (hasProto) {
+        protoAugment(value, arrayMethods)
+      } else {
+        copyAugment(value, arrayMethods, arrayKeys)
+      }
+      this.observeArray(value)
+    } else {
+      this.walk(value)
+    }
+  }
+
+  /**
+   * Walk through each property and convert them into
+   * getter/setters. This method should only be called when
+   * value type is Object.
+   */
+   // P3-2
+  walk (obj: Object) {
+    const keys = Object.keys(obj)
+    for (let i = 0; i < keys.length; i++) {
+      defineReactive(obj, keys[i], obj[keys[i]])
+    }
+  }
+
+  /**
+   * Observe a list of Array items.
+   */
+   // P3-1
+  observeArray (items: Array<any>) {
+    for (let i = 0, l = items.length; i < l; i++) {
+      observe(items[i])
+    }
+  }
+}
+```
+1. 首先可以知道Observer构造函数有三个属性和两个方法
+2. 这里调用了Object.defineProperty定义了__ob__属性,也就是构造函数本身
+3. 这里会对数据对象类型做判断,
+    1. 如果为数组对象, 先为数组的增删方法设置代理检测,然后遍历数组对象,按照普通对象方法检测
+    2. 如果为普通对象,就调用walk方法,这里对每个属性都调用defineReactive方法
+```js
+
+export function defineReactive (
+    obj: Object,
+    key: string,
+    val: any,
+    customSetter?: ?Function,
+    shallow?:boolean
+) 
+    // P1
+    const dep = new Dep()
+
+    //P2
+    const property = Object.getOwnPropertyDescriptor(obj, key)
+    if (property && property.configurable === false) {
+        return
+    }
+
+    // cater for pre-defined getter/setters
+    const getter = property && property.get
+    const setter = property && property.set
+
+    // P3
+    let childOb = !shallow && observe(val)
+    Object.defineProperty(obj, key, {
+        enumerable: true,
+        configurable: true,
+        // P4
+        get: function reactiveGetter () {
+            // P4-1
+            const value = getter ? getter.call(obj) : val
+            if (Dep.target) {
+                // P4-2
+                dep.depend()
+                // P4-3
+                if (childOb) {
+                    childOb.dep.depend()
+                    if (Array.isArray(value)) {
+                        // P4-4
+                        dependArray(value)
+                    }
+                }
+            }
+            return value
+        },
+        // P5
+        set: function reactiveSetter (newVal) {
+            // P5-1
+            const value = getter ? getter.call(obj) : val
+            /* eslint-disable no-self-compare */
+            if (newVal === value || (newVal !== newVal && value !== value)) {
+                return
+            }
+            /* eslint-enable no-self-compare */
+            if (process.env.NODE_ENV !== 'production' && customSetter) {
+                customSetter()
+            }
+            // P5-2
+            if (setter) {
+                setter.call(obj, newVal)
+            } else {
+                val = newVal
+            }
+            // P5-3
+            childOb = !shallow && observe(newVal)
+            // P5-4
+            dep.notify()
+        }
+    })
+}
+```
+1. 依赖收集器(与Observer中的dep不同的是,这个dep针对的是所有属性值,而Observer的针对的是普通对象和数组)
+2. 判断对象的属性描述是否是可编辑,同时获取可能存在的get和setter方法
+3. 通过shallow来判断是否进行深度观测
+4. get属性作用:
+    1. __返回原属性的getter值 || 原属性值__
+    2. __自身收集依赖(自身值变化引起的handle), dep.depend()就是执行dep对象的depend方法并将依赖收集到dep这个对象中__
+    3. __子对象收集依赖(子属性的值变化引起的handle), childOb其实就是data[ParentProp].\_\_ob\_\_属性__
+5. set属性作用:
+    1. __比较新值和旧值,在值不同且值不为NaN的时候赋值__
+    2. __如果存在用户定义的set方法就执行原来的set,否则就设置新值__
+    3. __对新值进行深度检测__
+    4. __执行每一个响应依赖__
