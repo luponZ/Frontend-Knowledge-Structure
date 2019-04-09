@@ -1,0 +1,2 @@
+### Obejct.freee
+### Object.seal
