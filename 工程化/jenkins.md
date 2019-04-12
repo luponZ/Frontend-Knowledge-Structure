@@ -37,5 +37,28 @@ sudo ufw allow 8080
 
 ### 启动和关闭
 启动服务：sudo service jenkins start
-重启服务: sudo servive jenkins restart
+重启服务: sudo service jenkins restart
 关闭服务: sudo service jenkins stop
+
+### 基础项目配置
+#### 获取github的secret_token
+![secret_token](../imgs/jekins/WX20190411-102408.png)
+
+#### 利用上面的secret_token设置jekins的github服务器
+![github_server](../imgs/jekins/config_github_server.png)
+
+#### 利用上面重写webhook的地址配置git项目的操作钩子
+![set_webhook](../imgs/jekins/set_webhook_1.png)
+![set_webhook](../imgs/jekins/set_webhook_2.png)
+
+#### 配置secret凭据
+![secret_Credential](../imgs/jekins/set_Credential.jpeg)
+
+#### 新建项目
+![create_task](../imgs/jekins/create_task.png)
+
+#### 项目配置
+![set_task_config](../imgs/jekins/set_task-config_1.png)
+![set_task_config](../imgs/jekins/set_task-config_2.png)
+![set_task_config](../imgs/jekins/set_task-config_3.png)
+![set_task_config](../imgs/jekins/set_task-config_4.png)
