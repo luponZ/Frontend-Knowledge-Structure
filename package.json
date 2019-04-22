@@ -30,7 +30,10 @@
     "url-join": "^2.0.5",
     "wordwrap": "^0.0.3"
   },
-  "devDependencies": {},
+  "devDependencies": {
+    "ts-node": "^8.1.0",
+    "typescript": "^3.4.4"
+  },
   "scripts": {
     "test": "echo \"Error: no test specified\" && exit 1",
     "dev": "./node_modules/.bin/http-server ./example"
