@@ -36,7 +36,7 @@ asyncFun().then(
 我们会经常碰到下面的表达式
 ```js
 const promise = Promise.resolve;
-promise.then(fn).then(fn2).fn(fn3).catch(fn4)
+promise.then(fn).then(fn2).then(fn3).catch(fn4)
 ```
 **为什么then的后面可以继续使用then或者catch**
 > then函数返回的实际上是新的Promise.resolve(resolve函数中返回的对象)对象 / Promise.reject(reject函数中返回的对象),因此可以执行链式操作,同时上个then中返回的值可以作为下一个then中函数的参数
