@@ -25,11 +25,11 @@ function Mycomponent() {
 ```
 
 ### effect hook
-> 用于产生副作用的服务
+> 用于产生副作用的服务, 包括事件监听, dom信息修改, ajax请求
 1. 组件首次渲染和每次更新都会调用一次useEffect中传递的函数及其返回函数
 2. useEffect中的函数是异步执行的,不会阻塞dom的渲染
 3. 可以在useEffect传递的函数中,在返回的函数中执行副作用事件的解绑事件
-4. 通过添加useEffect的第三个参数来避免useEffect在每次更新后都会执行
+4. 通过添加useEffect的第二个参数来避免useEffect在每次更新后都会执行
 5. 可以被多次调用
 ```jsx
 import * as React from 'react';
@@ -50,7 +50,7 @@ funcion MyComponent() {
         return () => {
             document.removeEventListener('scroll', handleScroll)
         } 
-    }, [info])
+    }, [info]) // react会检查info是否被修改来避免每次更新都会执行effect事件
     return (
         <div>{info}</div>
     )
