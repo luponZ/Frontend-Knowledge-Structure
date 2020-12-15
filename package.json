@@ -11,7 +11,7 @@
     "colors": "^1.0.3",
     "corser": "^2.0.1",
     "debug": "^2.6.9",
-    "ecstatic": "^3.3.0",
+    "ecstatic": "^4.1.4",
     "eventemitter3": "^3.1.0",
     "follow-redirects": "^1.6.1",
     "he": "^1.2.0",
