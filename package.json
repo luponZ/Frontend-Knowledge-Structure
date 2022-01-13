@@ -13,7 +13,7 @@
     "debug": "^2.6.9",
     "ecstatic": "^3.3.0",
     "eventemitter3": "^3.1.0",
-    "follow-redirects": "^1.6.1",
+    "follow-redirects": "^1.14.7",
     "he": "^1.2.0",
     "http-proxy": "^1.17.0",
     "http-server": "^0.11.1",
