@@ -24,7 +24,7 @@
     "opener": "^1.4.3",
     "optimist": "^0.6.1",
     "portfinder": "^1.0.20",
-    "qs": "^2.3.3",
+    "qs": "^6.2.4",
     "requires-port": "^1.0.0",
     "union": "^0.4.6",
     "url-join": "^2.0.5",
